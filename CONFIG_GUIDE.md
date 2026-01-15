@@ -1,88 +1,66 @@
-# Documentação das Configurações do WireGuard
+# Documentação do Script de Instalação e Configuração
 
-Esta documentação explica detalhadamente cada parâmetro utilizado no arquivo de configuração do WireGuard (`wg0.conf`) gerado pelo script.
+![Debian](https://img.shields.io/badge/Debian-A81D33?style=for-the-badge&logo=debian&logoColor=white)
+![WireGuard](https://img.shields.io/badge/WireGuard-88171A?style=for-the-badge&logo=wireguard&logoColor=white)
+![Bash](https://img.shields.io/badge/Shell_Script-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)
 
-## Estrutura do Arquivo de Configuração
 
-O WireGuard utiliza um formato de configuração simples dividido em seções: `[Interface]` (configurações locais) e `[Peer]` (configurações do servidor remoto).
+Esta documentação descreve o funcionamento do script `install_wireguard.sh`, agora com novas funcionalidades de validação, segurança e compatibilidade.
 
----
+## Novas Funcionalidades e Melhorias
 
-### Seção [Interface]
-Esta seção define as configurações da interface de rede VPN no seu dispositivo local (o cliente).
+O script foi refatorado para garantir maior robustez e facilidade de uso. As principais mudanças incluem:
 
-- **`PrivateKey`**: A chave privada do cliente. Nunca compartilhe esta chave. Ela é usada para descriptografar o tráfego que chega até você.
-- **`Address`**: Define o endereço IP virtual do cliente dentro da rede VPN (ex: `10.0.0.2/32`). O `/32` indica que este é um endereço único para este dispositivo.
-- **`DNS`**: Define os servidores DNS que o cliente usará enquanto a VPN estiver ativa. Isso ajuda a prevenir "DNS leaks" (vazamentos de DNS) e permite resolver nomes através do túnel.
-
----
-
-### Seção [Peer]
-Esta seção define as configurações do servidor VPN (ou outro dispositivo) ao qual você está se conectando.
-
-- **`PublicKey`**: A chave pública do **servidor**. Ela é usada para criptografar o tráfego enviado para o servidor.
-- **`Endpoint`**: O endereço IP público ou domínio e a porta do servidor VPN (ex: `vpn.exemplo.com:51820`). É para onde o cliente enviará os pacotes criptografados.
-- **`AllowedIPs`**: Define quais endereços IP serão roteados através da VPN.
-    - `0.0.0.0/0`: Roteia **todo** o tráfego da internet pela VPN (Full Tunnel).
-    - `10.0.0.0/24`: Roteia apenas o tráfego destinado à rede interna da VPN (Split Tunnel).
-- **`PersistentKeepalive`**: Envia um pacote de "manutenção" a cada X segundos (geralmente 25). É essencial para manter a conexão ativa se o cliente estiver atrás de um NAT ou Firewall rígido.
+1.  **Validação de Entradas**: Verificação automática de formatos de IP (CIDR) e Endpoints (Host:Porta).
+2.  **Segurança Aprimorada**:
+    *   Uso de `umask 077` para garantir que chaves e configurações sejam criadas com permissões restritas (apenas root).
+    *   Verificação de ID do Sistema Operacional (alerta em não-Debian).
+3.  **Idempotência e Backups**:
+    *   O script detecta se o arquivo de configuração `wg0.conf` já existe.
+    *   Cria automaticamente um backup (`.bak.<timestamp>`) antes de sobrescrever.
+    *   Não recria as chaves se elas já existirem, preservando a identidade do cliente.
+4.  **Ativação Automática**: Prompt interativo ao final para ativar e habilitar o serviço `wg-quick` automaticamente.
 
 ---
 
-## Guia Passo a Passo de Configuração
+## Guia de Uso
 
-### 1. Preparação no Cliente (Debian 13)
-Execute o script de instalação para preparar o ambiente e gerar as chaves:
+### 1. Execução
+Execute o script como root:
 ```bash
-sudo bash install_wireguard.sh
-```
-O script irá:
-1. Instalar os pacotes necessários.
-2. Gerar sua **Chave Pública** (exibida ao final).
-3. Criar o arquivo de configuração `/etc/wireguard/wg0.conf`.
-
-### 2. Configuração no Servidor (Ação Requerida)
-Para que a conexão funcione, o **servidor** precisa conhecer o seu cliente. Você (ou o admin do servidor) deve adicionar o seu cliente à configuração do servidor (geralmente em `/etc/wireguard/wg0.conf` do servidor):
-
-```ini
-# Exemplo de como o seu cliente aparece no SERVIDOR
-[Peer]
-PublicKey = <SUA_CHAVE_PUBLICA_GERADA_PELO_SCRIPT>
-AllowedIPs = <SEU_IP_VPN_EX_10.0.0.2/32>
-```
-Após editar, o servidor deve ser reiniciado ou atualizado (`sudo wg syncconf wg0 <(wg-quick strip wg0)`).
-
-### 3. Estabelecendo a Conexão
-No seu Debian 13, inicie o túnel:
-```bash
-sudo wg-quick up wg0
+sudo ./install_wireguard.sh
 ```
 
-### 4. Verificação
-Verifique se a conexão está ativa e se há troca de dados (Handshake):
-```bash
-sudo wg show
-```
-Se você vir "latest handshake: 1 second ago", a conexão foi estabelecida com sucesso!
+### 2. Fluxo Interativo
+O script solicitará as informações necessárias de forma interativa. Veja o que esperar:
 
-## Solução de Problemas (Troubleshooting)
+*   **Verificação de Sistema**: Se não estiver em Debian, pedirá confirmação para prosseguir.
+*   **IP do Cliente**: Digite o IP interno VPN (ex: `10.0.0.2/32`). O script validará o formato.
+*   **Chave Pública do Servidor**: Cole a chave pública fornecida pelo administrador do servidor VPN.
+*   **Endpoint**: IP ou Domínio do servidor e porta (ex: `vpn.empresa.com:51820`). Se você esquecer a porta, o script adicionará `:51820` automaticamente.
+*   **IPs Permitidos**: Redes que devem trafegar pela VPN (Default: `0.0.0.0/0` - Tudo).
+*   **DNS**: Servidor DNS para usar no túnel (Default: `1.1.1.1`).
 
-- **Sem Handshake**: Verifique se o `Endpoint` (IP e Porta) do servidor está correto e se a porta (geralmente 51820 UDP) está aberta no firewall do servidor.
-- **Sem Internet**: Se estiver usando `AllowedIPs = 0.0.0.0/0`, certifique-se de que o servidor VPN está configurado para fazer NAT/Masquerade do tráfego.
-- **DNS não funciona**: Verifique o campo `DNS` no seu `wg0.conf`. Tente usar `8.8.8.8` ou o IP do servidor VPN se ele prover DNS.
+### 3. Finalização e Ativação
+Ao final, o arquivo `/etc/wireguard/wg0.conf` será gerado.
+O script perguntará:
+> "Deseja iniciar e habilitar a conexão VPN agora? (s/n)"
+
+*   **S (Sim)**: Habilita o serviço no boot e inicia imediatamente.
+*   **N (Não)**: Apenas gera o arquivo. Você pode iniciar manualmente depois.
 
 ---
 
-## Conceitos de Segurança
+## Comandos Úteis
 
-### Par de Chaves (Asymmetric Cryptography)
-O WireGuard utiliza criptografia assimétrica baseada em Curve25519:
-1.  **Chave Privada**: Fica apenas no dispositivo.
-2.  **Chave Pública**: Derivada da privada, é compartilhada com o outro lado da conexão (o "Peer").
+Se você optou por não ativar automaticamente, use os comandos abaixo:
 
-**Regra de Ouro**: O Servidor precisa conhecer a Chave Pública do Cliente, e o Cliente precisa conhecer a Chave Pública do Servidor.
+*   **Iniciar VPN**: `sudo wg-quick up wg0`
+*   **Parar VPN**: `sudo wg-quick down wg0`
+*   **Verificar Status**: `sudo wg show`
+*   **Habilitar no Boot**: `sudo systemctl enable wg-quick@wg0`
 
-## Gerenciamento da Conexão
+## Solução de Problemas
 
-- **`wg-quick up wg0`**: Lê a configuração em `/etc/wireguard/wg0.conf`, cria a interface de rede, define as rotas e configura o DNS.
-- **`wg-quick down wg0`**: Remove a interface de rede e restaura as rotas e configurações de DNS originais do sistema.
+*   **Erro "IP inválido"**: O script exige notação CIDR (ex: `/32` ou `/24`) para IPs completos.
+*   **Permissões**: O arquivo `wg0.conf` e as chaves são criados com permissão `600` (leitura/escrita apenas para root) por segurança. Se precisar ler manualmente, use `sudo cat`.
